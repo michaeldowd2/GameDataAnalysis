@@ -1,0 +1,662 @@
+---
+title: "Game Data Analysis Report"
+author: "Michael Dowd"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(reshape2)
+df <- read.csv('game_sales.csv')
+```
+
+***
+# Problem Definition
+The task is loosely defined - you're given a small dataset which is a subsample of game sales figures and you need to analyse the data and then, based firmly in the analysis, make recommendations to a game production company with regard to marketing and business strategy.
+
+# Dataset Exploration
+## Game Sales
+The target variable I want to maximise is game sales. This density plot shows the overall range of sales values that have been observed in the data.
+
+```{r data, fig.width=8, fig.height=4}
+df %>%
+  ggplot() +
+  aes(x = sales, opacity = 0.5) +
+  geom_histogram(binwidth = 0.2) + 
+  coord_cartesian(xlim = c(0,10))
+```
+
+The data is right-skewed. There are a few extreme outliers and also there is a hard lower limit of 0 for sales while there is no upper limit. Here are some summary statistics:
+
+```{r summary sales, results='hide'}
+df %>%
+  summarise(mean_sales = mean(sales), 
+            standard_deviation = sd(sales),
+            median_sales=median(sales),  
+            ninety_fifth_quantile = quantile(sales, 0.95),
+            max_sales = max(sales))
+```
+
+Mean Sales | Standard Deviation | Median Sales | 95th Quantile | Max Sales
+------------- | ------------- | ------------- | ------------- | -------------
+1.134 | 2.993 | 0.52 | 3.76 | 82.53
+
+The median (520,000) is significantly smaller than the mean (1.13 million). Another interesting effect of the right-skew is that though the maximum sales for one game was 82.5 million, 95% of games sold 3.76 million or less.
+
+
+
+## Platform
+The most popular platforms in the dataset with regards to number of games released are the PS2 and X360. These are both obsolete now and in fact the first current platform, the PS4 is number 9 on the list.
+
+```{r Platform Count, fig.width=8, fig.height=4}
+df %>%
+  group_by(platform) %>%
+  summarise(number_of_releases = n()) %>%
+  ggplot() +
+  aes(x = reorder(platform,number_of_releases),y = number_of_releases) +
+  geom_bar(stat = "identity") +
+  xlab("Platform") +
+  coord_flip()
+```
+
+The average sales for each platform are shown below The standard deviation gives a visual guide to how much the sales for each platform vary.
+
+```{r Platform average sales, fig.width=8, fig.height=4}
+df %>%
+  group_by(platform) %>%
+  summarise(
+    mean = mean(sales, na.rm = TRUE),
+    sd   = sd(sales, na.rm = TRUE),
+    max = max(sales, na.rm = TRUE),
+    min = min(sales, na.rm = TRUE)
+  ) %>%
+  mutate(
+    upper = mean + sd,
+    lower = mean - sd
+  ) %>%
+ggplot +
+  aes(x = reorder(platform, mean),
+      y = mean, 
+      ymin = upper,
+      ymax = lower) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() + 
+  xlab('Platform') +
+  ylab('Average Sales (millions) with Standard Deviation')
+```
+
+## Genres
+The most popular genre with regard to number of games release is sports, while puzzle has the least amount of games.
+
+```{r Genre Count, fig.width=8, fig.height=4}
+df %>%
+  group_by(genre) %>%
+  summarise(number_of_releases = n()) %>%
+  ggplot() +
+  aes(x = reorder(genre, number_of_releases), y = number_of_releases) +
+  geom_bar(stat = "identity") +
+  xlab("Genre") +
+  coord_flip()
+```
+
+The average sales and standard deviation for each genre is shown below
+
+```{r genre average sales, fig.width=8, fig.height=4}
+df %>%
+  group_by(genre) %>%
+  summarise(
+    mean = mean(sales, na.rm = TRUE),
+    sd   = sd(sales, na.rm = TRUE)
+  ) %>%
+  mutate(
+    upper = mean + sd,
+    lower = mean - sd
+  ) %>%
+ggplot +
+  aes(x = reorder(genre, mean),
+      y = mean, 
+      ymin = lower,
+      ymax = upper) +
+  geom_point() +
+  geom_errorbar() +
+  coord_flip() + 
+  xlab('Genre') +
+  ylab('Average Sales (millions)')
+```
+
+Interestingly, this chart shows the puzzle genre as having a high average sales figure, but large standard deviation, indicating that there is a high variance in this genre
+
+## Game Releases and Sales over Time
+The chart below tracks the number of games released each year alongside the number of sales each year.
+
+```{r Sales and Releases over time, fig.width=8, fig.height=5}
+df %>%
+  mutate(Type = 'Game Sales  (Millions)', Value = sales) %>% # add new columns to data
+  rbind(mutate(df, Type = 'Game Releases', Value = 1)) %>% # duplicate and mutate for facet
+  group_by(year_of_release, Type) %>% # group by new year and type column
+  summarise(sum = sum(Value)) %>%
+  ggplot() +
+  geom_line(aes(x = year_of_release, y = sum)) +
+  geom_point(aes(x = year_of_release, y = sum)) +
+  xlab("Year of Release") +
+  ylab("Count") +
+  facet_grid(Type ~ .)
+```
+
+Interestingly the two series appear to track each other closely. To confirm this the correlation of the two series is checked:
+
+```{r Scatter plot number of release and sales, fig.width=8, fig.height=4 }
+df %>%
+  group_by(year_of_release) %>%
+  summarise(no_of_releases = n(), sales = sum(sales)) %>%
+  ggplot() +
+  aes(x = no_of_releases, y = sales) +
+  geom_point() +
+  geom_smooth(method='lm') +
+  ylab("Sales") +
+  xlab("Number of Releases")
+```
+
+```{r correlation number of release and sales, results='hide' }
+df %>%
+  group_by(year_of_release) %>%
+  summarise(no_of_releases = n(), sales = sum(sales)) %>%
+  cor.test(~ no_of_releases + sales, data = .) # dplyr pipe version of correlation test
+```
+
+Pearson's Correlation | p-value
+------------- | -------------
+0.933 | 2.483e-10
+
+The correlation value is high and there is a small p-value, suggesting that if the null hypothesis were true (ie. no correlation exists) then we would almost never see these results. Therefore we can safely reject the null hypothesis and conclude there is a high correlation between these two series.
+
+Though game sales through the years have changed drastically, this is accompanied by correlated changes in total sales, suggesting that perhaps average game sales each year aren't changing significantly. This is investigated below:
+
+```{r Average game sales each year, fig.width=8, fig.height=4 }
+df %>%
+  group_by(year_of_release) %>%
+  summarise(average_game_sales = mean(sales)) %>%
+  ggplot()+
+  aes(x = year_of_release, y = average_game_sales) +
+  geom_line() +
+  geom_point() +
+  ylab("Average Game Sales") +
+  xlab("Year of Release") + 
+  coord_cartesian(xlim=c(2000,2016))
+```
+
+It is an important for a games company to know whether the average game sales are trending in any particular direction as this will give an indication of the market for future games. 
+
+To formally test this I have used an anova test with year as the categorical variable and mean sales as the target variable. I also filtered out years prior to 2000 as there were very few sample points having large effect on the mean.
+
+```{r Macro ANOVA test, results='hide'}
+df %>%
+  group_by(year_of_release) %>%
+  summarise(average_game_sales = mean(sales)) %>%
+  aov(average_game_sales ~  year_of_release, data=.) %>%
+  summary()
+```
+
+Variable | p-value
+------------- | -------------
+Year of Release | 0.184
+
+As we have a P-value > 0.05, there is not enough evidence to suggest that year of release is having any statistically significant impact on average game sales.
+
+## Platforms over time
+An important property of the gaming industry is that gaming platforms change and become obsolete over time. The chart below shows the number of sales on each platform over time.
+
+```{r Platform release count over time, fig.width=8, fig.height=5}
+df %>%
+  group_by(year_of_release, platform) %>%
+  summarise(sum=sum(sales)) %>%
+  ggplot() +
+  geom_line(aes(x=year_of_release,y=sum, colour=platform)) +
+  geom_point(aes(x=year_of_release,y=sum, colour=platform)) +
+  ylab('Sales') +
+  xlab('Year of Release')
+```
+
+In the year 2016, games only sold on the following 5 platforms: 3DS, WiiU, PC, XOne and the PS4. The following charts show the breakdown for each platform in terms of number of games released and total sales.
+
+```{r Platform release count in 2016, fig.width=8, fig.height=2}
+df %>%
+  filter(year_of_release == 2016) %>%
+  group_by(platform) %>%
+  summarise(count = n()) %>%
+  ggplot() +
+  aes(x = reorder(platform,count), y = count) +
+  geom_bar(stat = "identity") +
+  xlab("Platform") +
+  ylab("Number of Releases") +
+  coord_flip()
+```
+
+```{r Platform sales in 2016, fig.width=8, fig.height=2}
+df %>%
+  filter(year_of_release == 2016) %>%
+  group_by(platform) %>%
+  summarise(sales = sum(sales)) %>%
+  ggplot() +
+  aes(x = reorder(platform,sales), y = sales) +
+  geom_bar(stat = "identity") +
+  xlab("Platform") +
+  coord_flip()
+```
+
+There are a limited number of platforms to release on in 2016 and this will be a constraining factor in later suggestions.
+
+***
+
+# Correlations and linear models
+The aim of the task is to find variables correlated with higher sales. I will use a multi-variate linear model and Pearson's correlation to identify relationships between variables and the sales figure. 
+
+These two methods are designed to identify 'linear' dependencies between variables, eg. for variable x, there exists fixed values of A and B such that Sales = A+Bx. 
+In fact this is a very strong assumption to make in this case, especially because:
+
+* The sales data is not normally distributed (exhibits heavy right-skew)
+* There is a hard cut-off at 0 (with many samples bunched around there)
+
+In the case of game sales, where we are seeing the sales for some games being orders of magnitude larger than others, we are likely looking for is a non-linear exponential relationship, in other words, an increase in a variable x causes an exponential increase in game sales. To model this relationship I will investigate the log-adjusted sales and the actual sales as targets for linear relationships
+
+The below histograms show the distribution of non-adjusted and log-adjusted sales figures. The log-adjusted sales are in fact normally distributed and much more likely to exhibit linear relationships with other variables.
+
+```{r Log10 Sales comparison, fig.width=8}
+df %>% 
+  mutate(Type = 'Sales') %>%
+  rbind(mutate(df, Type='Log(10) Sales', sales = log10(sales))) %>%
+  mutate(logSales = log10(sales)) %>%
+  ggplot() +
+  aes(x = sales) +
+  geom_histogram(binwidth = 0.15) + 
+  coord_cartesian(xlim = c(-2.5,7.5)) +
+  ylab("Count") +
+  xlab("Sales") +
+  facet_grid(Type ~ .)
+```
+
+## Game Critic Scores Analysis
+I will now examine the critic review scores against the log-adjusted and non-adjusted sales figures.
+
+```{r Critic Score plots, fig.width=8, fig.height=4}
+# To show both log adjusted and non adjusted side by side, I've merged a duplicate version of the data with a Type column and log-adjusted sales to the original dataframe.
+
+df %>% 
+  mutate(Type = 'Sales') %>%
+  rbind(mutate(df, Type = 'Log(10) Sales', sales = log10(sales))) %>%
+  ggplot() +
+  aes(x = critic_score, y = sales) +
+  geom_jitter() + 
+  geom_smooth(method = 'lm') +
+  coord_cartesian(ylim = c(-2.5,7.5)) +
+  xlab("Critic Score") +
+  ylab("Sales") +
+  facet_grid(. ~ Type) 
+```
+
+The linear regression line here for the non-adjusted sales on the right is clearly less accurately fit, especially for games that received a lower critic score. The bands on either side of the fit line give an indication of the quality of fit and are much narrower for the log-adjusted sales data on the left.
+
+To confirm this I've calculated the p-value for intercept and slope for both adjusted and non-adjusted sales below:
+
+```{r User Score Linear model summary, results='hide'}
+summary(lm(log10(sales) ~ critic_score, df)) # log10 adjusted
+summary(lm(sales ~ critic_score, df)) # non-adjusted
+```
+
+__Non-adjusted sales critic score linear model__
+
+Variable | Value | p-value
+------------- | ------------- | -------------
+Intercept | -2.084 | 2.37e-06
+Critic Score Slope | 0.043 | 2.04e-13
+R-Squared  | 0.029  |
+
+__Log-adjusted sales critic score linear model__
+
+Variable | Value | p-value
+------------- | ------------- | -------------
+Intercept | -1.692 | 2e-16
+Critic Score Slope | 0.01845 | 2e-16
+R-Squared  | 0.147  |
+
+The p-value for the slope in both cases is extremely low, so there is almost certainly a relationship here and these models are both statistically valid. However the P-values for the log-adjusted sales model is lower, as well as the R-Squared value being much higher, so this would lead me to conclude that the log-adjusted model is a better fit for this data.
+
+The Pearson's correlation coefficient can also be tested against log adjusted and non-adjusted sales figures
+
+```{r critic Score correlation test, results='hide'}
+cor.test(log10(df$sales), df$critic_score) # log10 adjusted
+cor.test((df$sales), df$critic_score) # non adjusted
+```
+
+Non-adjusted sales and critic score correlation  | p-value
+------------- | -------------
+0.1709 | 2.039e-13
+
+Log-adjusted sales and critic score correlation  | p-value
+------------- | -------------
+0.3834 | 2.2e-16
+
+In both correlation tests there is a very small p-value suggesting a high certainty of the results. The correlation between non-adjusted sales and critic score is relatively low, yet not very small, at 0.1709, while the correlation between log-adjusted sales is more than twice as strong at 0.3834.
+
+```{r user Score correlation test, results='hide'}
+cor.test(log10(df$sales), df$user_score) # log10 adjusted
+cor.test((df$sales), df$user_score) # non adjusted
+```
+
+Log-adjusted sales and user score correlation  | p-value
+------------- | -------------
+0.2069 | 2.2e-16
+
+Non-adjusted sales and user score correlation  | p-value
+------------- | -------------
+0.09984 | 1.947e-05
+
+Interestingly there are much smaller correlations between sales data and user scores, suggesting that purchasers of games tend to rely more on critic scores than user scores when making their decisions.
+
+***
+
+## Multivariate Model
+### Platform, Genre, Rating & Publisher
+I'm going to investigate these four variables together for the important reason of these being the variables that the game designer has direct control over. 
+
+### Assumptions:
+1. This analysis is for is a game developer, therefore it is meaningless to develop a model which relates sales back to the developer variable, as this variable can't be changed
+
+2. The company can pitch a game 'profile' to a preferred publisher, so Publisher is a variable over which we have some control and it will be useful to know what publishers are related to high game sales.
+
+3. The possible platforms are limited to PS4, XOne, PC, WiiU and 3DS. We might also consider developing for the soon to be released Nintendo Switch if there is good evidence to support this decision
+
+The following code section executes backwards selection with p-values and comments indicated the eliminated variables and why they were eliminated
+
+```{r Backwards Induction p-value, results='hide'}
+
+#Create model
+anova(lm(log10(sales) ~ genre + publisher + rating + platform, data = df)) # log adjusted sales
+anova(lm(sales ~ genre + publisher + rating + platform, data = df)) # non-adjusted sales
+```
+
+
+Non-adjusted Sales Linear Model | Genre | Publisher | Rating | Platform
+------------- | ------------- | ------------- | ------------- | -------------
+P-Values | 0.015545 | 2.2e-16 | 0.001175 | 2.2e-16 
+
+
+Log-adjusted Sales Linear Model | Genre | Publisher | Rating | Platform
+------------- | ------------- | ------------- | ------------- | -------------
+P-Values | 1.392e-09 | 2.2e-16 | 6.244e-12 | 2.2e-16 
+
+Two models are tested, one with log-adjusted sales and the other without adjusting the sales figures. In both models the P-Values for each of the 4 selected variables are less than 5% indicating that each variable statistically significant effect on the sales and none had to be eliminated.
+
+```{r Rsquared, results='hide'}
+
+#Create model
+summary(lm(log10(sales) ~ genre + publisher + rating + platform, data = df)) # log adjusted sales
+summary(lm(sales ~ genre + publisher + rating + platform, data = df)) # non-adjusted sales
+```
+
+R-Squared Comparison | Log-Adjusted Sales | Non-Adjusted Sales
+------------- | ------------- | -------------
+R-Squared Value | 0.3692 | 0.2433
+
+The p-values in the log-adjusted model are much lower, especially for the genre and platform variables. Also the R-Squared value for the log-adjusted sales model is quite a bit higher than the non-adjusted sales model. The log-adjusted sales model is therefore a better fit for the data and I will proceed using log-adjusted sales.
+
+***
+
+### Linear Model - Checking Assumptions
+#### 1. Numeric variables are linearly related to target. 
+As there are no numeric variables being used in this model, nothing needs to be done here
+
+#### 2. Normality of Residuals
+The residuals in the log-adjusted sales model are approximately normal and satisfy this assumption.
+
+```{r Normality of residuals in log adjusted sales model, fig.width=8, fig.height=4}
+df %>%
+  mutate(log_residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>%
+  ggplot() +
+  aes(x = log_residuals) + 
+  geom_histogram(binwidth = 0.1)
+```
+
+#### 3. Constant variance of Variables
+In each of the above charts the categorical variables are showing nice constant variance centered around zero, this linear model has been satisfied.
+
+```{r Variance of Genre Residuals, log-adjusted, fig.width=8, fig.height=3}
+df %>%
+  mutate(log_residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>%
+  ggplot() +
+  aes(x =genre , y = log_residuals) +
+  geom_jitter(height = 0) +
+  geom_hline(yintercept = 0) +
+  coord_flip() +
+  ylab("Residuals")
+```
+
+```{r Variance of Platform Residuals, fig.width=8, fig.height=3.5}
+df %>%
+  mutate(log_residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>%
+  ggplot() +
+  aes(x = platform , y = log_residuals) +
+  geom_jitter(height = 0) +
+  geom_hline(yintercept = 0) +
+  coord_flip() +
+  ylab("Residuals")
+```
+
+```{r Variance of Rating Residuals, fig.width=8, fig.height=1.5}
+df %>%
+  mutate(log_residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>%
+  ggplot() +
+  aes(x = rating , y = log_residuals) +
+  geom_jitter(height = 0) +
+  geom_hline(yintercept = 0) +
+  coord_flip() +
+  ylab("Residuals")
+```
+
+```{r Variance of publisher residuals, fig.width=8, fig.height=3}
+df %>%
+  mutate(log_residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>%
+  ggplot() +
+  aes(x = publisher , y = log_residuals) +
+  geom_jitter(height = 0) +
+  geom_hline(yintercept = 0) +
+  coord_flip() +
+  ylab("Residuals")
+```
+
+#### 4. Residuals are independent
+With samples ordered by year of release, the residuals plotted show no indications of clustering and the data seems evenly distributed around the mean of zero.
+
+```{r Independence of variables - order by all stuff, fig.width=8, fig.height=4}
+df %>%
+  mutate(residuals = residuals(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))) %>% # model
+  arrange(desc(year_of_release), desc(platform), desc(genre), desc(publisher), desc(rating), desc(sales)) %>%
+  mutate(order = row_number()) %>% # order
+  ggplot() +
+  aes(x = order, y = residuals) +
+  geom_point() +
+  xlab("Order") +
+  ylab("Residuals")
+```
+
+***
+
+### Linear Model Results
+Using the model tested above we can now proceed to pick the variables which maximise sales. At this point industry knowledge is also critical, specifically we can't choose a games platforms which is obsolete or a publisher that is no longer in business
+
+```{r Linear Model Results, fig.width=8, fig.height=8}
+# Coefficent matrix
+mat <- summary(lm(log10(sales) ~ genre + publisher + rating + platform,
+                  data = df))$coefficients
+
+# Result pipe
+data.frame(name = row.names(mat), mat) %>%
+  # Split out the variable into a seperate column
+  mutate(Variable = if_else(grepl('genre', name), 'genre',
+                    if_else(grepl('publisher', name), 'publisher',
+                    if_else(grepl('rating', name), 'rating',
+                    if_else(grepl('platform', name), 'platform','Intercept'))))) %>%
+  # Create a Category column for every sample
+  mutate(Category = str_replace(name, Variable, '')) %>% 
+  # Remove Misk and Other categories as they won't be useful output
+  filter(Category != 'Misc' & Category != 'Other') %>%
+  # Remove old playstation consoles
+  filter(Category != 'PS' & Category != 'PS2' & Category != 'PS3' & Category != 'PSV' & Category != 'PSP') %>% 
+  filter(Category != 'XB' & Category != 'X360' & Category != 'PS3') %>%
+  # Remove some publishers who are no longer in business
+  filter(Category != 'Tecmo Koei' & Category != 'Midway Games' & Category != 'PS3' & Category != 'PSV' & Category != 'PSP') %>% 
+  # Highlight rules
+  mutate(Highlight = if_else((Variable == 'genre' & (Category == 'Simulation' | Category == 'Fighting')) |
+                           (Variable == 'platform' & (Category == 'XOne' | Category == 'PS4')) |
+                           (Variable == 'publisher' & (Category == 'Electronic Arts' | Category == 'Nintendo')) |
+                           (Variable == 'rating' & Category == 'M'), 'Investigate', 
+                           if_else((Variable == 'genre' & (Category == 'Strategy' | Category == 'Puzzle')) |
+                           (Variable == 'platform' & (Category == 'PC' | Category == 'WiiU')) |
+                           (Variable == 'publisher' & (Category == 'Codemasters' | Category == 'Sony Computer Entertainment')) |
+                           (Variable == 'rating' & Category == 'E10+'), 'Bad Choice', 'Neutral Choice'))) %>%
+  select(Variable, Category, Estimate, Highlight) %>%
+  filter(Variable != 'Intercept') %>%
+  ggplot() +
+  aes(x = Category, y = Estimate, fill = Highlight) +
+  geom_bar(stat = "identity") + 
+  facet_grid(Variable ~ ., scales = "free", space = "free") +
+  coord_flip() +
+  labs(x = '', y = 'Coefficent') +
+  theme(axis.text.y = element_text(lineheight = 1, size = 7))
+```
+
+The model can be used to maximise sales by selecting the options with the highest slopes from each category above. However at this point further analysis needs to be done to check the statistical significance of each of the high scoring category choices. An option may have a high positive slope, but if there isn't enough data to support it, then it should not be part of any recommendation.
+
+```{r Linear model p-values, results="hide"}
+summary(lm(log10(sales) ~ genre + publisher + rating + platform, data = df))$coefficients
+```
+
+Some categories worth considering are listed here:
+
+__Genre__
+
+* Simulation: 0.1648003150, p-value: 5.511674e-03
+* Fighting: 0.1349610929, p-value: 1.412523e-02
+
+__Platform__
+
+* PS4:  0.3172497448, p-value: 9.333422e-04
+* XOne:  0.0577307352, p-value: 5.612009e-01
+* WiiU: -0.1194478217, p-value: 2.564689e-01
+* 3DS: 0 (baseline)
+
+__Publisher__
+
+* Nintendo: 0.7429307748, p-value: 8.784536e-23
+* Electronic Arts:-0.1252041823, p-value: 2.405702e-02
+* Warner Bros: 0.0008069113, p-value: 9.928668e-01
+
+__Rating__
+
+* M: 0.2885362581, p-value: 2.039512e-08
+* E: 0 (baseline)
+
+The XOne and WiiU platforms and the Warner Bros publisher all have high p-values so there isn't enough evidence to back up the sales contribution predicted by the model.
+
+The above scores and p-values suggest the following combination:
+
+```{r Model Predictions with Electronic Arts as PUblisher, echo=TRUE, results='hide'}
+10 ^ (
+  -0.26742 # Intercept
+  + 0.1349610929 # Genre: Fighting
+  + 0.3172497448  # Platform: PS4
+  - 0.1252041823 # Publisher: Electronic Arts
+  + 0.2885362581 # Rating M
+) * 1000000
+```
+
+>For this combination of choices the model predicts sales of: 2.23 million
+
+There is an alternative approach that could yield even higher sales. The model shows that getting Nintendo as the publisher on average tends to add many millions of to the game sales, so it could be worth trying to develop a game specifically with this in mind. However there are some specific things to bear in mind if targeting Nintendo as a publisher. The first is that they haven't published any games with a 'Mature' rating:
+
+```{r Nintendo Ratings, fig.width=8, fig.height=3}
+df %>%
+  filter(publisher == 'Nintendo') %>%
+  ggplot() +
+  aes(x = rating) +
+  geom_bar() +
+  xlab("Rating") +
+  ylab("Count")
+```
+
+The vast majority of the titles published by Nintendo have a rating of E, suggesting that we should create a game targeting a family friendly audience in order for Nintendo to be more likely to publish. Another constraint here is that Nintendo only publish games for their own platforms:
+```{r Nintendo Platforms, fig.width=8, fig.height=3}
+df %>%
+  filter(publisher == 'Nintendo') %>%
+  ggplot() +
+  aes(x = platform) +
+  geom_bar() +
+  xlab("Platform") +
+  ylab("Count")
+```
+
+With this in mind we would need to aim for creating an E-rated game for the 3Ds (which from the model is preferable to the WiiU in 2016). Another possibility is to try and develop for the upcoming Nintendo Switch, but we have no data for this and can't predict how sales will relate to that platform.
+
+```{r Model Predictions with Nintendo as PUblisher, echo=TRUE,results='hide'}
+10 ^ (
+  -0.26742 # Intercept
+  + 0.1648 # Genre: simulation
+  + 0  # Platform 3DS (baseline)
+  + 0.7429 # Publisher: Nintendo
+  + 0 # Rating E (baseline)
+) * 1000000
+```
+>For this combination of choices the model predicts sales of: 4.36 million
+
+***
+
+## T-Tests on interesting linear model outcomes
+### Games published by Nintendo sell better
+A t-test comparing the average sales of games published by Nintendo and games not published by Nintendo yielded the following results:
+```{r T Test game sales with Nintendo as PUblisher, results='hide'}
+df %>%
+  mutate(published_by_nintendo = if_else(publisher == 'Nintendo', 'YES','NO')) %>%
+  t.test(sales ~ published_by_nintendo, data = ., var.equal = TRUE)
+```
+
+P-Value | 95% CI Lower Bound | 95% CI Upper Bound
+------------- | ------------- | -------------
+2.2e-16 | -6.198 | -5.007
+
+The null hypothesis in the above test is that there really is no difference between the real average sales of games published by Nintendo and the real average sales of games not published by Nintendo. Given how small the p-value is here, the null hypothesis can safely be rejected.
+
+Another interesting point that can be extracted from this t-test is from the 95% confidence interval. According to this test we can say that if this sample were repeated 100 times, then 95 times out of 100, the average sales of games published by Nintendo would be between 5 and 6.2 Million copies more than the average game sales of games not published by Nintendo. This is equivalent to saying:
+
+There is good evidence to say that on average games published by Nintendo sell between 5 and 6.2 million copies more than games not published by Nintendo.
+
+### PS4 games sell better than XOne games
+A T-test on the average game sales on the PS4 Platform vs the XOne platform yields:
+```{r T Test PS4 games vs XOne Games, results='hide'}
+df %>%
+  filter(platform == 'XOne' | platform == 'PS4') %>%
+  t.test(sales ~ platform, data = ., var.equal = TRUE)
+```
+
+P-Value | 95% CI Lower Bound | 95% CI Upper Bound
+------------- | ------------- | -------------
+0.0129 | 0.1333 | 1.103
+
+From the 95% confidence interval we can say that there is good evidence to say that on average games published on the PS4 will sell between 130,000 and 1.1 million more copies than games on the XOne
+
+### Puzzle games average sales vs non puzzle games
+A T-test comparing the average sales of puzzle games with non-puzzle games yields the following:
+```{r T Puzzle games vs all others, results='hide'}
+df %>%
+  mutate(puzzle = if_else(genre == 'Puzzle', 'YES', 'NO')) %>%
+  t.test(sales ~ puzzle, data = ., var.equal = TRUE)
+```
+
+P-Value | 95% CI Lower Bound | 95% CI Upper Bound
+------------- | ------------- | -------------
+0.4058 | -2.099 | 0.849
+
+The above t-test comparing the sales of puzzle games vs the sales of non-puzzle games has found a high p-value. In this case we don't enough evidence to support the idea that puzzle games sell more or less copies on average than non-puzzle games.
